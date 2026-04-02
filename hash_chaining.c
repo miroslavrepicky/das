@@ -8,6 +8,7 @@
 HashTable* create_table(int size){
     HashTable *ht = (HashTable*)malloc(sizeof(HashTable));
     ht->size = size;
+    ht->count = 0;
     ht->table = (Node**)malloc(size * sizeof(Node*));
     for(int i = 0; i < size; i++){
         ht->table[i] = NULL;
@@ -21,6 +22,12 @@ void insert(HashTable *ht, int key){
     new_node->key = key;
     new_node->next = ht->table[index]; // vkládáme na začátek řetězce
     ht->table[index] = new_node;
+    ht->count++;
+    if ((double)ht->count / ht->size > ALPHA_THRESHOLD)
+    {
+        rehash(ht, 2.0);
+    }
+    
 }
 
 Node* search(HashTable *ht, int key){
@@ -47,6 +54,10 @@ void delete_key(HashTable *ht, int key){
                 prev->next = current->next; // mazání uzlu uprostřed nebo na konci řetězce
             }
             free(current);
+            ht->count--;
+            if((double)ht->count / ht->size < LOWER_ALPHA){
+                rehash(ht, 0.5);
+            }
             return;
         }
         prev = current;
@@ -54,11 +65,54 @@ void delete_key(HashTable *ht, int key){
     }
 }
 
+void rehash(HashTable *ht, double factor){
+    int old_size = ht->size;
+    Node **old_table = ht->table;
 
+    int new_size = (int)(old_size * factor);
+    HashTable *new_ht = create_table(new_size);
 
+    // Prenesieme všetky kľúče do novej tabuľky
+    for (int i = 0; i < old_size; i++) {
+        Node *current = old_table[i];
+        while (current != NULL) {
+            insert(new_ht, current->key);
+            current = current->next;
+        }
+    }
+    // Uvoľníme uzly v starej tabuľke
+    for (int i = 0; i < old_size; i++) {
+        Node *current = old_table[i];
+        while (current != NULL) {
+            Node *tmp = current;
+            current = current->next;
+            free(tmp);           // uvoľníme každý uzol
+        }
+    }
 
-int main(){
+    free(old_table);             // uvoľníme pole bucketov
 
+    // Prenesieme obsah new_ht do pôvodnej štruktúry
+    ht->table = new_ht->table;
+    ht->size  = new_ht->size;
+    ht->count = new_ht->count;
 
-    return 0;
+    free(new_ht);                // uvoľníme len wrapper štruktúru, NIE table
+}
+
+void free_table(HashTable *ht) {
+    if (ht == NULL) return;
+
+    for (int i = 0; i < ht->size; i++) {
+        Node *current = ht->table[i];
+
+        while (current != NULL) {
+            Node *tmp = current;
+            current = current->next;
+            free(tmp);
+        }
+    }
+
+    free(ht->table);
+    free(ht);
 }

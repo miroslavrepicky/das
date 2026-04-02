@@ -5,7 +5,8 @@
 extern "C" {
 #endif
 
-#define HASH_SIZE 10
+#define ALPHA_THRESHOLD 0.75
+#define LOWER_ALPHA 0.2
 
 typedef struct Node {
     int key;
@@ -14,6 +15,7 @@ typedef struct Node {
 
 typedef struct HashTable {
     int size;
+    int count; // počet ulozenych klucov
     Node **table;
 } HashTable;
 
@@ -22,6 +24,8 @@ HashTable* create_table(int size);
 void insert(HashTable *ht, int key);
 Node* search(HashTable *ht, int key);
 void delete_key(HashTable *ht, int key);
+void free_table(HashTable *ht);
+void rehash(HashTable *ht, double factor);
 
 #ifdef __cplusplus
 }

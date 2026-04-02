@@ -276,6 +276,10 @@ int main() {
     for (int i = 1; i <= 100000; i++) {
         insert(&tree, i);
     }
+    for(int i = 1; i <= 100000; i++) {
+        delete(&tree, i);
+    }
+    printf("Vložení a mazání 100000 klíčů dokončeno.\n");
 
     // Můžete přidat další testy pro vyhledávání a mazání
 

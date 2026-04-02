@@ -1,407 +1,810 @@
+/*
+ * tree23.c  –  2-3 Tree  (C99)
+ *
+ * Build:
+ *   gcc -std=c99 -Wall -Wextra -o demo tree23.c
+ *
+ * The implementation follows the classic textbook approach:
+ *   Insert : split on the way back up (bottom-up splits).
+ *   Delete : merge / redistribute on the way back up.
+ *
+ * All helper functions are static (translation-unit private).
+ */
+
+#include "two_three_tree.h"
+
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
+/* ================================================================== */
+/*  Internal helpers – node allocation / key comparison               */
+/* ================================================================== */
 
-typedef struct Node {
-    int keys[2];          // 1 alebo 2 kľúče
-    struct Node *children[4]; // 0, 2 alebo 3 deti (4 pre jednoduchšiu manipuláciu pri zlučovaní)
-    int num_keys;         // počet kľúčov (1 alebo 2)
-} Node;
-
-typedef struct {
-    Node *root;
-} Tree23;
-
-typedef struct {
-    int promoted_key;   // kľúč ktorý ide nahor
-    Node *right_child;  // nový pravý uzol po štiepeni
-    int split_occurred; // 0 alebo 1
-} InsertResult;
-
-Node* new_node(void) {
-    Node *n = (Node*)calloc(1, sizeof(Node));
+static T23Node *node_new(void)
+{
+    T23Node *n = (T23Node *)calloc(1, sizeof(T23Node));
+    if (!n) {
+        fprintf(stderr, "tree23: out of memory\n");
+        exit(EXIT_FAILURE);
+    }
     return n;
 }
 
-int is_leaf(Node *n) {
-    return n->children[0] == NULL;
+/* Comparison wrapper – keeps the code easy to adapt to other key types. */
+static inline int cmp(T23Key a, T23Key b)
+{
+    return (a > b) - (a < b);   /* -1 / 0 / +1 */
 }
 
-// Vráti 1 ak uzol má underflow (ostal prázdny po delete)
-typedef struct {
-    int underflow; // 1 ak treba riešiť rebalancing
-} DeleteResult;
+/* ================================================================== */
+/*  Public: init / free                                                */
+/* ================================================================== */
 
-// Nájde najmenší kľúč v podstrome (in-order nasledovník)
-int find_min(Node *node) {
-    while (!is_leaf(node))
-        node = node->children[0];
-    return node->keys[0];
+void tree23_init(T23Tree *tree)
+{
+    assert(tree);
+    tree->root = NULL;
 }
 
-
-InsertResult split_node(Node *node, int key, Node *new_child) {
-    InsertResult res;
-
-    // Zoradíme 3 kľúče a 4 deti do pomocných polí
-    int keys[3];
-    Node *children[4];
-
-    // Zaradíme nový kľúč na správne miesto
-    if (key < node->keys[0]) {
-        keys[0] = key;
-        keys[1] = node->keys[0];
-        keys[2] = node->keys[1];
-        children[0] = new_child;
-        children[1] = node->children[0];
-        children[2] = node->children[1];
-        children[3] = node->children[2];
-    } else if (key < node->keys[1]) {
-        keys[0] = node->keys[0];
-        keys[1] = key;
-        keys[2] = node->keys[1];
-        children[0] = node->children[0];
-        children[1] = node->children[1];
-        children[2] = new_child;
-        children[3] = node->children[2];
-    } else {
-        keys[0] = node->keys[0];
-        keys[1] = node->keys[1];
-        keys[2] = key;
-        children[0] = node->children[0];
-        children[1] = node->children[1];
-        children[2] = node->children[2];
-        children[3] = new_child;
-    }
-
-    // Stredný kľúč ide nahor
-    res.promoted_key = keys[1];
-    res.split_occurred = 1;
-
-    // Ľavý uzol - prepoužijeme pôvodný
-    node->keys[0] = keys[0];
-    node->num_keys = 1;
-    node->children[0] = children[0];
-    node->children[1] = children[1];
-    node->children[2] = NULL;
-
-    // Pravý uzol - nový
-    Node *right = new_node();
-    right->keys[0] = keys[2];
-    right->num_keys = 1;
-    right->children[0] = children[2];
-    right->children[1] = children[3];
-
-    res.right_child = right;
-    return res;
+static void free_nodes(T23Node *n)
+{
+    if (!n) return;
+    free_nodes(n->child[0]);
+    free_nodes(n->child[1]);
+    free_nodes(n->child[2]);
+    free(n);
 }
 
-// new_child je pravý potomok promoted_key (NULL ak sme na liste)
-InsertResult insert_into_node(Node *node, int key, Node *new_child) {
-    InsertResult res = {0, NULL, 0};
+void tree23_free(T23Tree *tree)
+{
+    assert(tree);
+    free_nodes(tree->root);
+    tree->root = NULL;
+}
 
-    // --- 2-uzol → jednoducho pridáme, vznikne 3-uzol ---
-    if (node->num_keys == 1) {
-        if (key < node->keys[0]) {
-            node->keys[1] = node->keys[0];
-            node->keys[0] = key;
-            node->children[2] = node->children[1];
-            node->children[1] = new_child ? new_child : node->children[1];
+/* ================================================================== */
+/*  Search                                                             */
+/* ================================================================== */
+
+static bool node_search(const T23Node *n, T23Key key)
+{
+    while (n) {
+        int c0 = cmp(key, n->keys[0]);
+        if (c0 == 0) return true;
+
+        if (n->num_keys == 2) {
+            int c1 = cmp(key, n->keys[1]);
+            if (c1 == 0) return true;
+
+            if (c0 < 0)
+                n = n->child[0];
+            else if (c1 < 0)
+                n = n->child[1];
+            else
+                n = n->child[2];
         } else {
-            node->keys[1] = key;
-            node->children[2] = new_child ? new_child : node->children[2];
+            n = (c0 < 0) ? n->child[0] : n->child[1];
         }
-        node->num_keys = 2;
-        return res; // split_occurred = 0
     }
-
-    // --- 3-uzol → musíme štiepif, vzniknú 2 uzly + promoted kľúč ---
-    return split_node(node, key, new_child);
+    return false;
 }
 
-InsertResult insert_recursive(Node *node, int key) {
-    InsertResult res = {0, NULL, 0};
+bool tree23_search(const T23Tree *tree, T23Key key)
+{
+    assert(tree);
+    return node_search(tree->root, key);
+}
 
-    // === LIST ===
-    if (is_leaf(node)) {
-        return insert_into_node(node, key, NULL);
+/* ================================================================== */
+/*  Insert                                                             */
+/* ================================================================== */
+
+/*
+ * A "split result" carries the median key and the two halves that
+ * result from splitting a temporarily-overfull (4-node) node.
+ */
+typedef struct {
+    bool    split;      /* true  → the child produced a split           */
+    T23Key  up_key;     /* key that must be pushed up to the parent      */
+    T23Node *left;      /* left  sub-tree of the split                   */
+    T23Node *right;     /* right sub-tree of the split                   */
+} SplitResult;
+
+static SplitResult insert_rec(T23Node *n, T23Key key);
+
+/*
+ * Absorb a split result (up_key, left, right) into node n at position pos.
+ * If n is a 2-node it simply becomes a 3-node (no further split).
+ * If n is a 3-node it overflows → we return another split upward.
+ */
+static SplitResult absorb_split(T23Node *n, int pos,
+                                T23Key up_key,
+                                T23Node *left, T23Node *right)
+{
+    /* ---------- n is a 2-node: just grow it into a 3-node ---------- */
+    if (n->num_keys == 1) {
+        if (pos == 0) {
+            /* insert on the left */
+            n->keys[1]  = n->keys[0];
+            n->keys[0]  = up_key;
+            n->child[2] = n->child[1];
+            n->child[0] = left;
+            n->child[1] = right;
+        } else {
+            /* insert on the right */
+            n->keys[1]  = up_key;
+            n->child[1] = left;
+            n->child[2] = right;
+        }
+        n->num_keys = 2;
+        return (SplitResult){ .split = false };
     }
 
-    // === VNÚTORNÝ UZOL - vyber správne dieťa ===
-    InsertResult child_res;
+    /* ---------- n is a 3-node: temporarily build a 4-node, then split ---------- */
+    /*
+     * Represent the 4-node as arrays of 3 keys and 4 children,
+     * then find the median and produce two 2-nodes.
+     */
+    T23Key   k[3];
+    T23Node *c[4];
 
-    if (key < node->keys[0]) {
-        child_res = insert_recursive(node->children[0], key);
-    } else if (node->num_keys == 1 || key < node->keys[1]) {
-        child_res = insert_recursive(node->children[1], key);
+    /* Copy existing state */
+    k[0] = n->keys[0]; k[1] = n->keys[1];
+    c[0] = n->child[0]; c[1] = n->child[1]; c[2] = n->child[2];
+
+    /* Insert the new key/children at position pos */
+    if (pos == 0) {
+        k[2] = k[1]; k[1] = k[0]; k[0] = up_key;
+        c[3] = c[2]; c[2] = c[1]; c[0] = left; c[1] = right;
+    } else if (pos == 1) {
+        k[2] = k[1]; k[1] = up_key;
+        c[3] = c[2]; c[1] = left; c[2] = right;
     } else {
-        child_res = insert_recursive(node->children[2], key);
+        k[2] = up_key;
+        c[2] = left; c[3] = right;
     }
 
-    // Dieťa sa neštiepilo - hotovo
-    if (!child_res.split_occurred) return res;
+    /* median is k[1]; left half gets k[0], right half gets k[2] */
+    T23Node *lnode = n;   /* reuse the existing allocation for the left node */
+    T23Node *rnode = node_new();
 
-    // Dieťa sa štiepilo - vložíme promoted_key do tohto uzla
-    return insert_into_node(node, child_res.promoted_key, child_res.right_child);
+    lnode->num_keys  = 1;
+    lnode->keys[0]   = k[0];
+    lnode->child[0]  = c[0];
+    lnode->child[1]  = c[1];
+    lnode->child[2]  = NULL;
+
+    rnode->num_keys  = 1;
+    rnode->keys[0]   = k[2];
+    rnode->child[0]  = c[2];
+    rnode->child[1]  = c[3];
+    rnode->child[2]  = NULL;
+
+    return (SplitResult){ .split = true, .up_key = k[1],
+                          .left  = lnode, .right  = rnode };
 }
 
+static SplitResult insert_rec(T23Node *n, T23Key key)
+{
+    /* --- leaf node --- */
+    if (!n->child[0]) {
+        /* Insert key into this leaf */
+        if (n->num_keys == 1) {
+            int c0 = cmp(key, n->keys[0]);
+            if (c0 == 0) return (SplitResult){ .split = false }; /* duplicate */
+            if (c0 < 0) {
+                n->keys[1] = n->keys[0];
+                n->keys[0] = key;
+            } else {
+                n->keys[1] = key;
+            }
+            n->num_keys = 2;
+            return (SplitResult){ .split = false };
+        } else { /* 3-node leaf – must split */
+            T23Key k[3];
+            if (cmp(key, n->keys[0]) == 0 || cmp(key, n->keys[1]) == 0)
+                return (SplitResult){ .split = false }; /* duplicate */
 
-void tree23_insert(Tree23 *tree, int key) {
-    if (tree->root == NULL) {
-        tree->root = new_node();
-        tree->root->keys[0] = key;
+            k[0] = n->keys[0]; k[1] = n->keys[1]; k[2] = key;
+            /* sort three values */
+            if (k[0] > k[1]) { T23Key t = k[0]; k[0] = k[1]; k[1] = t; }
+            if (k[1] > k[2]) { T23Key t = k[1]; k[1] = k[2]; k[2] = t; }
+            if (k[0] > k[1]) { T23Key t = k[0]; k[0] = k[1]; k[1] = t; }
+
+            T23Node *lnode = n;
+            T23Node *rnode = node_new();
+
+            lnode->num_keys = 1; lnode->keys[0] = k[0];
+            rnode->num_keys = 1; rnode->keys[0] = k[2];
+            /* children stay NULL (leaves) */
+            lnode->child[0] = lnode->child[1] = lnode->child[2] = NULL;
+            rnode->child[0] = rnode->child[1] = rnode->child[2] = NULL;
+
+            return (SplitResult){ .split = true, .up_key = k[1],
+                                  .left  = lnode, .right  = rnode };
+        }
+    }
+
+    /* --- internal node: recurse into the correct child --- */
+    int pos;
+    SplitResult sr;
+
+    int c0 = cmp(key, n->keys[0]);
+    if (c0 == 0) return (SplitResult){ .split = false }; /* duplicate */
+
+    if (n->num_keys == 2) {
+        int c1 = cmp(key, n->keys[1]);
+        if (c1 == 0) return (SplitResult){ .split = false }; /* duplicate */
+        if (c0 < 0)      { pos = 0; sr = insert_rec(n->child[0], key); }
+        else if (c1 < 0) { pos = 1; sr = insert_rec(n->child[1], key); }
+        else             { pos = 2; sr = insert_rec(n->child[2], key); }
+    } else {
+        if (c0 < 0) { pos = 0; sr = insert_rec(n->child[0], key); }
+        else        { pos = 1; sr = insert_rec(n->child[1], key); }
+    }
+
+    if (!sr.split) return (SplitResult){ .split = false };
+
+    /* Child split – absorb the split result */
+    return absorb_split(n, pos, sr.up_key, sr.left, sr.right);
+}
+
+void tree23_insert(T23Tree *tree, T23Key key)
+{
+    assert(tree);
+
+    if (!tree->root) {
+        tree->root = node_new();
         tree->root->num_keys = 1;
+        tree->root->keys[0]  = key;
         return;
     }
 
-    InsertResult res = insert_recursive(tree->root, key);
+    SplitResult sr = insert_rec(tree->root, key);
 
-    // Koreň sa štiepil - vytvoríme nový koreň
-    if (res.split_occurred) {
-        Node *new_root = new_node();
-        new_root->keys[0] = res.promoted_key;
+    if (sr.split) {
+        /* The root was split – create a new root */
+        T23Node *new_root = node_new();
         new_root->num_keys = 1;
-        new_root->children[0] = tree->root;
-        new_root->children[1] = res.right_child;
+        new_root->keys[0]  = sr.up_key;
+        new_root->child[0] = sr.left;
+        new_root->child[1] = sr.right;
         tree->root = new_root;
     }
 }
 
-Node *tree23_search_node(Node *node, int key) {
-    if (node == NULL) return NULL;
-    if (is_leaf(node)) {
-        for (int i = 0; i < node->num_keys; i++) {
-            if (node->keys[i] == key) return node;
-        }
-        return NULL;
-    }
-    if(node->num_keys == 1){
-        if(key == node->keys[0]) return node;
-        if(key < node->keys[0]){
-            return tree23_search_node(node->children[0], key);
-        }
-        return tree23_search_node(node->children[1], key);
-    }
-    else{
-        if(key == node->keys[0]) return node;
-        if(key == node->keys[1]) return node;
-        if(key < node->keys[0]){
-            return tree23_search_node(node->children[0], key);
-        }
-        else if(key < node->keys[1]){
-            return tree23_search_node(node->children[1], key);
-        }
-        else{
-            return tree23_search_node(node->children[2], key);
-        }
-    }
-        
-    
+/* ================================================================== */
+/*  Delete                                                             */
+/* ================================================================== */
 
-    return NULL;
+/*
+ * Deletion strategy (classic 2-3 approach):
+ *
+ * 1. Find the key. If it is in an internal node, swap it with its
+ *    in-order successor (which is always in a leaf), then delete
+ *    from the leaf.
+ * 2. If the leaf is a 3-node, simply remove the key → done.
+ * 3. If the leaf is a 2-node it becomes "empty" (underflow). Repair
+ *    on the way back up:
+ *      a. If a sibling is a 3-node → redistribute (rotate).
+ *      b. Otherwise → merge with a sibling (and pull down a key from parent).
+ *         The parent may then underflow → propagate upward.
+ */
+
+/* Return values from delete_rec: describes what happened to child[pos]. */
+typedef enum {
+    DEL_OK,        /* subtree is fine                */
+    DEL_UNDERFLOW, /* the child at pos is now empty  */
+    DEL_NOT_FOUND  /* key was not in this subtree    */
+} DelStatus;
+
+static DelStatus delete_rec(T23Node *n, T23Key key);
+
+/*
+ * Find the minimum key in a subtree (= leftmost leaf key[0]).
+ */
+static T23Key subtree_min(T23Node *n)
+{
+    while (n->child[0]) n = n->child[0];
+    return n->keys[0];
 }
 
-Node* tree23_search(Tree23 *tree, int key) {
-    // Implementácia vyhľadávania v 2-3 strome
-    // Táto funkcia by mala prehľadávať strom a nájsť daný kľúč
-    // ...
-    if (tree->root == NULL) {
-        printf("Key %d not found\n", key);
-        return NULL;
-    }
-    
-    Node *result = tree23_search_node(tree->root, key);
-    if (result != NULL) {
-        printf("Key %d found\n", key);
-    } else {
-        printf("Key %d not found\n", key);
-    }
+/*
+ * Fix an underflow in child[pos] of node n.
+ * Returns DEL_OK or DEL_UNDERFLOW (if n itself now underflows).
+ */
+static DelStatus fix_underflow(T23Node *n, int pos)
+{
+    /*
+     * We have 3 cases depending on whether n is a 2-node or 3-node,
+     * and which sibling(s) we can borrow from.
+     */
 
-    return result;
-}    
+    /* ---------------------------------------------------------------- */
+    /* n is a 3-node (has 3 children; pos ∈ {0,1,2})                   */
+    /* ---------------------------------------------------------------- */
+    if (n->num_keys == 2) {
+        if (pos == 0) {
+            T23Node *sib = n->child[1];
+            if (sib->num_keys == 2) {
+                /* rotate: move n->keys[0] down into child[0], move sib->keys[0] up */
+                T23Node *def = n->child[0];
 
-// Rotácia: požičaj kľúč od pravého súrodenca cez rodiča
-void rotate_left(Node *parent, int idx) {
-    Node *child   = parent->children[idx];
-    Node *sibling = parent->children[idx + 1];
+                T23Node *new_def = node_new();
+                new_def->num_keys = 1;
+                new_def->keys[0]  = n->keys[0];
+                new_def->child[0] = def->child[0]; /* child[0] was empty; carry its subtree */
+                new_def->child[1] = sib->child[0];
 
-    // Kľúč rodiča ide do child
-    child->keys[child->num_keys] = parent->keys[idx];
-    child->num_keys++;
-
-    // Najľavejší kľúč súrodenca ide do rodiča
-    parent->keys[idx] = sibling->keys[0];
-
-    // Presuň najľavejšie dieťa súrodenca do child
-    child->children[child->num_keys] = sibling->children[0];
-
-    // Posuň kľúče a deti súrodenca doľava
-    for (int i = 0; i < sibling->num_keys - 1; i++) {
-        sibling->keys[i]     = sibling->keys[i + 1];
-        sibling->children[i] = sibling->children[i + 1];
-    }
-    sibling->children[sibling->num_keys - 1] = sibling->children[sibling->num_keys];
-    sibling->num_keys--;
-}
-
-// Rotácia: požičaj kľúč od ľavého súrodenca cez rodiča
-void rotate_right(Node *parent, int idx) {
-    Node *child   = parent->children[idx];
-    Node *sibling = parent->children[idx - 1];
-
-    // Posunieme kľúče a deti child doprava
-    for (int i = child->num_keys; i > 0; i--) {
-        child->keys[i]         = child->keys[i - 1];
-        child->children[i + 1] = child->children[i];
-    }
-    child->children[1] = child->children[0];
-
-    // Kľúč rodiča ide do child
-    child->keys[0] = parent->keys[idx - 1];
-    child->num_keys++;
-
-    // Napravý kľúč súrodenca ide do rodiča
-    parent->keys[idx - 1] = sibling->keys[sibling->num_keys - 1];
-
-    // Odober posledné dieťa súrodenca, presun do child
-    child->children[0] = sibling->children[sibling->num_keys];
-    sibling->children[sibling->num_keys] = NULL;
-    sibling->num_keys--;
-}
-
-void merge(Node *parent, int idx) {
-    Node *left  = parent->children[idx];
-    Node *right = parent->children[idx + 1];
-
-    // Ľavý uzol dostane: svoj kľúč (už má), kľúč rodiča, kľúč pravého
-    left->keys[1] = parent->keys[idx];
-    // right má vždy 1 kľúč pri merge (inak by sme rotovali)
-    // Ale left už má 1 kľúč → 3-uzol má 2 kľúče
-    // Pozor: right->keys[0] NEideme do left, left ostane s 2 kľúčmi:
-    //   left->keys[0] = pôvodný kľúč left
-    //   left->keys[1] = kľúč rodiča
-    // A right sa stane stredným dieťaťom? Nie — right zanikne.
-    // 
-    // Správna logika merge pre 2-3 strom:
-    // left (1 kľúč) + parent->keys[idx] + right (1 kľúč) → 3-uzol (2 kľúče)
-    left->keys[1]     = parent->keys[idx];
-    left->num_keys    = 2;
-    left->children[2] = right->children[0];
-    left->children[3] = right->children[1]; // POZOR: Node.children má size 3!
-
-    // Posuň rodiča
-    for (int i = idx; i < parent->num_keys - 1; i++) {
-        parent->keys[i]         = parent->keys[i + 1];
-        parent->children[i + 1] = parent->children[i + 2];
-    }
-    parent->children[parent->num_keys] = NULL;
-    parent->num_keys--;
-    free(right);
-}
-
-DeleteResult delete_recursive(Node *node, int key) {
-    DeleteResult res = {0};
-
-    // === LIST ===
-    if (is_leaf(node)) {
-        // Nájdi a vymaž kľúč
-        if (node->num_keys == 2) {
-            if (node->keys[0] == key) {
-                node->keys[0] = node->keys[1];
+                free(def);
+                n->child[0] = new_def;
+                n->keys[0]  = sib->keys[0];
+                sib->keys[0] = sib->keys[1];
+                sib->child[0] = sib->child[1];
+                sib->child[1] = sib->child[2];
+                sib->child[2] = NULL;
+                sib->num_keys = 1;
+                return DEL_OK;
+            } else {
+                /* merge child[0] (empty) + n->keys[0] + sib into one 3-node */
+                T23Node *def = n->child[0];
+                sib->keys[1]  = sib->keys[0];
+                sib->keys[0]  = n->keys[0];
+                sib->child[2] = sib->child[1];
+                sib->child[1] = sib->child[0];
+                sib->child[0] = def->child[0];
+                sib->num_keys = 2;
+                free(def);
+                /* pull the separator up */
+                n->keys[0]  = n->keys[1];
+                n->child[0] = sib;
+                n->child[1] = n->child[2];
+                n->child[2] = NULL;
+                n->num_keys = 1;
+                return DEL_OK; /* n is still a 2-node, no underflow */
             }
-            // ak keys[1] == key, len znížime počet
-            node->num_keys = 1;
-            return res; // žiadny underflow
-        } else {
-            // 2-uzol → po delete ostane prázdny → underflow
-            node->num_keys = 0;
-            res.underflow = 1;
-            return res;
+        } else if (pos == 1) {
+            /* Try left sibling first */
+            T23Node *lsib = n->child[0];
+            T23Node *def  = n->child[1];
+            if (lsib->num_keys == 2) {
+                T23Node *new_def = node_new();
+                new_def->num_keys = 1;
+                new_def->keys[0]  = n->keys[0];
+                new_def->child[0] = lsib->child[2];
+                new_def->child[1] = def->child[0];
+                free(def);
+                n->child[1] = new_def;
+                n->keys[0]  = lsib->keys[1];
+                lsib->child[2] = NULL;
+                lsib->num_keys = 1;
+                return DEL_OK;
+            }
+            /* Try right sibling */
+            T23Node *rsib = n->child[2];
+            if (rsib->num_keys == 2) {
+                T23Node *new_def = node_new();
+                new_def->num_keys = 1;
+                new_def->keys[0]  = n->keys[1];
+                new_def->child[0] = def->child[0];
+                new_def->child[1] = rsib->child[0];
+                free(def);
+                n->child[1] = new_def;
+                n->keys[1]  = rsib->keys[0];
+                rsib->keys[0] = rsib->keys[1];
+                rsib->child[0] = rsib->child[1];
+                rsib->child[1] = rsib->child[2];
+                rsib->child[2] = NULL;
+                rsib->num_keys = 1;
+                return DEL_OK;
+            }
+            /* merge with left sibling */
+            lsib->keys[1]  = n->keys[0];
+            lsib->child[2] = def->child[0];
+            lsib->num_keys = 2;
+            free(def);
+            n->keys[0]  = n->keys[1];
+            n->child[1] = n->child[2];
+            n->child[2] = NULL;
+            n->num_keys = 1;
+            return DEL_OK;
+        } else { /* pos == 2 */
+            T23Node *sib = n->child[1];
+            T23Node *def = n->child[2];
+            if (sib->num_keys == 2) {
+                T23Node *new_def = node_new();
+                new_def->num_keys = 1;
+                new_def->keys[0]  = n->keys[1];
+                new_def->child[0] = sib->child[2];
+                new_def->child[1] = def->child[0];
+                free(def);
+                n->child[2] = new_def;
+                n->keys[1]  = sib->keys[1];
+                sib->child[2] = NULL;
+                sib->num_keys = 1;
+                return DEL_OK;
+            }
+            /* merge */
+            sib->keys[1]  = n->keys[1];
+            sib->child[2] = def->child[0];
+            sib->num_keys = 2;
+            free(def);
+            n->child[2] = NULL;
+            n->num_keys = 1;
+            return DEL_OK;
         }
     }
 
-    // === VNÚTORNÝ UZOL ===
-    // Ak kľúč je tu, nahraď ho in-order nasledovníkom
-    int child_idx;
-    if (node->num_keys == 2 && key == node->keys[1]) {
-        // Nahraď in-order nasledovníkom (min z pravého podstromu)
-        node->keys[1] = find_min(node->children[2]);
-        key = node->keys[1]; // maž nasledovníka z podstromu
-        child_idx = 2;
-    } else if (key == node->keys[0]) {
-        node->keys[0] = find_min(node->children[1]);
-        key = node->keys[0];
-        child_idx = 1;
-    } else if (key < node->keys[0]) {
-        child_idx = 0;
-    } else if (node->num_keys == 1 || key < node->keys[1]) {
-        child_idx = 1;
+    /* ---------------------------------------------------------------- */
+    /* n is a 2-node (has 2 children; pos ∈ {0,1})                     */
+    /* ---------------------------------------------------------------- */
+    T23Node *def, *sib;
+
+    if (pos == 0) {
+        def = n->child[0]; sib = n->child[1];
     } else {
-        child_idx = 2;
+        def = n->child[1]; sib = n->child[0];
     }
 
-    DeleteResult child_res = delete_recursive(node->children[child_idx], key);
+    if (sib->num_keys == 2) {
+        /* Redistribute */
+        T23Node *new_def = node_new();
+        new_def->num_keys = 1;
 
-    if (!child_res.underflow) return res;
+        if (pos == 0) {
+            new_def->keys[0]  = n->keys[0];
+            new_def->child[0] = def->child[0];
+            new_def->child[1] = sib->child[0];
+            n->keys[0]        = sib->keys[0];
+            sib->keys[0]      = sib->keys[1];
+            sib->child[0]     = sib->child[1];
+            sib->child[1]     = sib->child[2];
+        } else {
+            new_def->keys[0]  = n->keys[0];
+            new_def->child[0] = sib->child[2];
+            new_def->child[1] = def->child[0];
+            n->keys[0]        = sib->keys[1];
+        }
+        sib->child[2] = NULL;
+        sib->num_keys = 1;
+        free(def);
+        n->child[pos] = new_def;
+        return DEL_OK;
+    }
 
-    // === REBALANCING ===
-    // Skús rotáciu od pravého súrodenca
-    if (child_idx < node->num_keys &&
-        node->children[child_idx + 1]->num_keys == 2) {
-        rotate_left(node, child_idx);
-        return res;
-    }
-    // Skús rotáciu od ľavého súrodenca
-    if (child_idx > 0 &&
-        node->children[child_idx - 1]->num_keys == 2) {
-        rotate_right(node, child_idx);
-        return res;
-    }
-    // Merge
-    if (child_idx < node->num_keys) {
-        merge(node, child_idx);
+    /* Merge: the two children and the separator key form a 3-node. */
+    T23Node *merged;
+    if (pos == 0) {
+        merged = sib; /* reuse sib */
+        merged->keys[1]  = merged->keys[0];
+        merged->keys[0]  = n->keys[0];
+        merged->child[2] = merged->child[1];
+        merged->child[1] = merged->child[0];
+        merged->child[0] = def->child[0];
+        merged->num_keys = 2;
+        free(def);
+        n->child[0] = merged;
+        n->child[1] = NULL;
     } else {
-        merge(node, child_idx - 1);
+        merged = sib; /* reuse sib */
+        merged->keys[1]  = n->keys[0];
+        merged->child[2] = def->child[0];
+        merged->num_keys = 2;
+        free(def);
+        n->child[1] = NULL;
     }
-
-    if (node->num_keys == 0)
-        res.underflow = 1;
-
-    return res;
+    /* n (a 2-node) has lost a child → underflow */
+    n->num_keys = 0; /* sentinel: will be cleaned up by caller */
+    return DEL_UNDERFLOW;
 }
 
-void tree23_delete(Tree23 *tree, int key) {
-    if (tree->root == NULL) {
-        printf("Key %d not found\n", key);
-        return;
+static DelStatus delete_rec(T23Node *n, T23Key key)
+{
+    int c0 = cmp(key, n->keys[0]);
+
+    /* ---- leaf ---- */
+    if (!n->child[0]) {
+        if (n->num_keys == 2) {
+            int c1 = cmp(key, n->keys[1]);
+            if (c0 == 0) {
+                n->keys[0] = n->keys[1];
+                n->num_keys = 1;
+                return DEL_OK;
+            }
+            if (c1 == 0) {
+                n->num_keys = 1;
+                return DEL_OK;
+            }
+            return DEL_NOT_FOUND;
+        } else {
+            if (c0 == 0) {
+                n->num_keys = 0; /* will signal underflow */
+                return DEL_UNDERFLOW;
+            }
+            return DEL_NOT_FOUND;
+        }
     }
 
-    DeleteResult res = delete_recursive(tree->root, key);
+    /* ---- internal node ---- */
+    int child_pos;
+    DelStatus st;
 
-    // Ak koreň ostal prázdny po merge
-    if (res.underflow) {
-        Node *old_root = tree->root;
-        tree->root = tree->root->children[0];
+    if (n->num_keys == 2) {
+        int c1 = cmp(key, n->keys[1]);
+
+        if (c0 == 0) {
+            /* Replace with in-order successor, then delete successor */
+            T23Key succ = subtree_min(n->child[1]);
+            n->keys[0]  = succ;
+            child_pos   = 1;
+            st = delete_rec(n->child[1], succ);
+        } else if (c1 == 0) {
+            T23Key succ = subtree_min(n->child[2]);
+            n->keys[1]  = succ;
+            child_pos   = 2;
+            st = delete_rec(n->child[2], succ);
+        } else if (c0 < 0) {
+            child_pos = 0;
+            st = delete_rec(n->child[0], key);
+        } else if (c1 < 0) {
+            child_pos = 1;
+            st = delete_rec(n->child[1], key);
+        } else {
+            child_pos = 2;
+            st = delete_rec(n->child[2], key);
+        }
+    } else {
+        if (c0 == 0) {
+            T23Key succ = subtree_min(n->child[1]);
+            n->keys[0]  = succ;
+            child_pos   = 1;
+            st = delete_rec(n->child[1], succ);
+        } else if (c0 < 0) {
+            child_pos = 0;
+            st = delete_rec(n->child[0], key);
+        } else {
+            child_pos = 1;
+            st = delete_rec(n->child[1], key);
+        }
+    }
+
+    if (st == DEL_NOT_FOUND) return DEL_NOT_FOUND;
+    if (st == DEL_OK)        return DEL_OK;
+
+    /* Child underflowed */
+    return fix_underflow(n, child_pos);
+}
+
+void tree23_delete(T23Tree *tree, T23Key key)
+{
+    assert(tree);
+    if (!tree->root) return;
+
+    DelStatus st = delete_rec(tree->root, key);
+
+    if (st == DEL_UNDERFLOW) {
+        /* Root became empty – shrink the tree */
+        T23Node *old_root = tree->root;
+        tree->root = old_root->child[0]; /* may be NULL for empty tree */
         free(old_root);
     }
 }
 
+/* ================================================================== */
+/*  Print (in-order, indented)                                        */
+/* ================================================================== */
 
+static void print_rec(const T23Node *n, int depth)
+{
+    if (!n) return;
 
-int main(){
+    /* Print right subtree first (rotated view) */
+    if (n->num_keys == 2)
+        print_rec(n->child[2], depth + 1);
 
-    Tree23 tree;
-    tree.root = NULL;
-    for (int i = 1; i <= 10000; i++) {
-        tree23_insert(&tree, i);
-        if(i % 1000 == 0){
-            printf("Inserted %d\n", i);
-        }
+    print_rec(n->child[1], depth + 1);
+
+    for (int i = 0; i < depth; ++i) printf("    ");
+
+    if (n->num_keys == 2)
+        printf("[%d | %d]\n", n->keys[0], n->keys[1]);
+    else
+        printf("[%d]\n", n->keys[0]);
+
+    print_rec(n->child[0], depth + 1);
+}
+
+void tree23_print(const T23Tree *tree)
+{
+    assert(tree);
+    if (!tree->root) {
+        printf("(empty tree)\n");
+        return;
     }
-    tree23_search(&tree, 5000);
-    tree23_delete(&tree, 5000);
-    tree23_search(&tree, 5000);
+    print_rec(tree->root, 0);
+}
+
+/*  ================================================================*/
+#define MAX_ROWS  64
+#define MAX_COLS 2048
+ 
+static char canvas[MAX_ROWS][MAX_COLS];
+static int  canvas_width[MAX_ROWS];
+ 
+static void canvas_clear(void) {
+    for (int r = 0; r < MAX_ROWS; r++) {
+        memset(canvas[r], ' ', MAX_COLS - 1);
+        canvas[r][MAX_COLS - 1] = '\0';
+        canvas_width[r] = 0;
+    }
+}
+ 
+static void canvas_write(int row, int col, const char *s) {
+    if (row < 0 || row >= MAX_ROWS) return;
+    int len = (int)strlen(s);
+    if (col + len >= MAX_COLS) return;
+    memcpy(canvas[row] + col, s, len);
+    if (col + len > canvas_width[row])
+        canvas_width[row] = col + len;
+}
+ 
+static void canvas_flush(void) {
+    for (int r = 0; r < MAX_ROWS; r++) {
+        if (canvas_width[r] == 0) break;
+        /* orez trailing spaces */
+        int end = canvas_width[r];
+        while (end > 0 && canvas[r][end-1] == ' ') end--;
+        canvas[r][end] = '\0';
+        puts(canvas[r]);
+    }
+}
+ 
+/* ── Rekurzívny výpočet šírky podstromu ────────────────────────── */
+/* Vracia šírku v znakoch (párna hodnota pre jednoduchšie centrovanie). */
+static int subtree_width(const T23Node *n) {
+    if (!n) return 0;
+    /* Šírka samotného uzla: "[k1]" alebo "[k1|k2]" */
+    char buf[32];
+    int nw;
+    if (n->num_keys == 1)
+        nw = snprintf(buf, sizeof buf, "[%d]", n->keys[0]);
+    else
+        nw = snprintf(buf, sizeof buf, "[%d|%d]", n->keys[0], n->keys[1]);
+    (void)buf;
+ 
+    /* Listový uzol */
+    if (!n->child[0]) return nw < 4 ? 4 : nw;
+ 
+    /* Vnútorný uzol: súčet šírok detí + medzery */
+    int cw = 0;
+    for (int i = 0; i <= n->num_keys; i++)
+        cw += subtree_width(n->child[i]);
+    cw += n->num_keys * 2;          /* 2-znakové medzery medzi deťmi */
+    return cw > nw ? cw : nw;
+}
+ 
+/* ── Rekurzívne kreslenie ───────────────────────────────────────── */
+static void draw_node(const T23Node *n, int row, int col, int width) {
+    if (!n) return;
+ 
+    /* 1. Nakresli label uzla vycentrovaný v [col, col+width) */
+    char label[32];
+    int llen;
+    if (n->num_keys == 1)
+        llen = snprintf(label, sizeof label, "[%d]", n->keys[0]);
+    else
+        llen = snprintf(label, sizeof label, "[%d|%d]", n->keys[0], n->keys[1]);
+ 
+    int label_col = col + (width - llen) / 2;
+    canvas_write(row, label_col, label);
+ 
+    if (!n->child[0]) return;   /* list — hotovo */
+ 
+    /* 2. Vypočítaj stredové pozície detí */
+    int num_ch = n->num_keys + 1;
+    int child_w[3], child_col[3];
+    int total_ch_w = 0;
+    for (int i = 0; i < num_ch; i++) {
+        child_w[i] = subtree_width(n->child[i]);
+        total_ch_w += child_w[i];
+    }
+    total_ch_w += (num_ch - 1) * 2;    /* medzery */
+ 
+    /* Posun tak, aby stredová masa detí bola zarovnaná s rodičom */
+    int ch_start = col + (width - total_ch_w) / 2;
+    if (ch_start < col) ch_start = col;
+ 
+    int cx = ch_start;
+    for (int i = 0; i < num_ch; i++) {
+        child_col[i] = cx;
+        cx += child_w[i] + 2;
+    }
+ 
+    /* 3. Nakresli hrany: "/" pre ľavé deti, "\" pre pravé, "|" pre stred */
+    int parent_mid = label_col + llen / 2;
+    for (int i = 0; i < num_ch; i++) {
+        int child_mid = child_col[i] + child_w[i] / 2;
+ 
+        /* Nakresli cestu edge-ov riadok po riadku (jednoduchá šikmá čiara) */
+        int dy = (row + 1);                 /* riadok hran je row+1 */
+        int dx_per_step = child_mid - parent_mid;
+        char edge_ch = (dx_per_step < 0) ? '/' : (dx_per_step > 0) ? '\\' : '|';
+ 
+        /* Krok = 1 riadok = 1 stĺpec (diagonála alebo zvislica) */
+        int ex = parent_mid + (dx_per_step < 0 ? -1 : dx_per_step > 0 ? 1 : 0);
+        char tmp[2] = { edge_ch, '\0' };
+        canvas_write(dy, ex, tmp);
+ 
+        /* Rekurzívne deti */
+        draw_node(n->child[i], row + 2, child_col[i], child_w[i]);
+    }
+}
+ 
+/* ── Verejná funkcia ────────────────────────────────────────────── */
+ 
+/**
+ * t23_print – vypíše 2-3 strom do stdout (ASCII art).
+ * Príklad:
+ *     T23Tree t = { ... };
+ *     t23_print(t.root);
+ */
+void t23_print(const T23Node *root) {
+    canvas_clear();
+    if (!root) {
+        puts("(prázdny strom)");
+        return;
+    }
+    int w = subtree_width(root);
+    draw_node(root, 0, 0, w);
+    canvas_flush();
+}
 
 
+
+
+/* ================================================================*/
+/* ================================================================== */
+/*  Demo main (compile with -DTREE23_DEMO to enable)                  */
+/* ================================================================== */
+#ifdef TREE23_DEMO
+int main(void)
+{
+    T23Tree t;
+    tree23_init(&t);
+
+    int keys[] = { 10, 20, 5, 6, 12, 30, 7, 17, 3, 8, 15, 11 };
+    int n      = (int)(sizeof keys / sizeof keys[0]);
+
+    printf("=== Insert ===\n");
+    for (int i = 0; i < n; ++i) {
+        printf("insert %d\n", keys[i]);
+        tree23_insert(&t, keys[i]);
+        t23_print(t.root);
+    }
+    printf("\n=== Tree (rotated in-order view) ===\n");
+    //tree23_print(&t);
+    
+    printf("\n=== Search ===\n");
+    int queries[] = { 6, 15, 99, 3, 20 };
+    for (int i = 0; i < 5; ++i) {
+        printf("search(%d) -> %s\n", queries[i],
+               tree23_search(&t, queries[i]) ? "FOUND" : "NOT FOUND");
+    }
+
+    printf("\n=== Delete ===\n");
+    int del[] = { 6, 20, 10, 3, 25 };
+    for (int i = 0; i < 5; ++i) {
+        printf("delete %d\n", del[i]);
+        tree23_delete(&t, del[i]);
+    }
+    printf("\n=== Tree after deletes ===\n");
+    //tree23_print(&t);
+    t23_print(t.root);
+
+
+    tree23_free(&t);
     return 0;
 }
+#endif /* TREE23_DEMO */
