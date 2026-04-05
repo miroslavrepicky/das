@@ -9,21 +9,21 @@ extern "C" {
 #define LOWER_ALPHA 0.2
 
 typedef struct Node {
-    int key;
+    long long key;
     struct Node *next;
 } Node;
 
 typedef struct HashTable {
-    int size;
-    int count; // počet ulozenych klucov
+    long long size;
+    long long count; // počet ulozenych klucov
     Node **table;
 } HashTable;
 
 // funkcie
-HashTable* create_table(int size);
-void insert(HashTable *ht, int key);
-Node* search(HashTable *ht, int key);
-void delete_key(HashTable *ht, int key);
+HashTable* create_table(long long size);
+void insert(HashTable *ht, long long key);
+Node* search(HashTable *ht, long long key);
+void delete_key(HashTable *ht, long long key);
 void free_table(HashTable *ht);
 void rehash(HashTable *ht, double factor);
 

@@ -21,34 +21,34 @@ extern "C" {
 
 
 // pomocná funkcia na generovanie dát
-std::vector<int> generate_data(int n) {
+std::vector<int> generate_data(long long n) {
     std::vector<int> data;
     data.reserve(n);
 
-    for (int i = 0; i < n; i++) {
+    for (long long i = 0; i < n; i++) {
         data.push_back(rand());
     }
 
     return data;
 }
 
-void run_test(int n, double alpha) {
-    int m = (int)(n / alpha); // veľkosť tabuľky
+void run_test(long long n, double alpha) {
+    long long m = (int)(n / alpha); // veľkosť tabuľky
 
     HashTable *ht = create_table(m);
     std::vector<int> data = generate_data(n);
 
     // 1. naplň tabuľku
-    for (int i = 0; i < n; i++) {
+    for (long long i = 0; i < n; i++) {
         insert(ht, data[i]);
     }
 
     // 2. meraj insert ďalších prvkov
-    int extra = 100000;
+    long long extra = 100000;
 
     auto start_insert = std::chrono::high_resolution_clock::now();
 
-    for (int i = 0; i < extra; i++) {
+    for (long long i = 0; i < extra; i++) {
         insert(ht, rand());
     }
 
@@ -61,7 +61,7 @@ void run_test(int n, double alpha) {
     // 🔹 SEARCH (existujúce prvky)
     auto start_search = std::chrono::high_resolution_clock::now();
 
-    for (int i = 0; i < n; i++) {
+    for (long long i = 0; i < n; i++) {
         search(ht, data[i]);
     }
 
@@ -71,7 +71,7 @@ void run_test(int n, double alpha) {
     // 🔹 DELETE
     auto start_delete = std::chrono::high_resolution_clock::now();
 
-    for (int i = 0; i < n; i++) {
+    for (long long i = 0; i < n; i++) {
         delete_key(ht, data[i]);
     }
 
@@ -87,7 +87,7 @@ void run_test(int n, double alpha) {
     free_table(ht);
 }
 
-int main() {
+long long main() {
     srand(time(NULL));
 
     std::vector<int> sizes = {1000, 5000, 10000, 100000, 500000, 1000000, 5000000, 10000000, 50000000};
@@ -95,7 +95,7 @@ int main() {
 
     std::cout << "n,alpha,insert,search,delete" << std::endl;
 
-    for (int n : sizes) {
+    for (long long n : sizes) {
         for (double alpha : alphas) {
             run_test(n, alpha);
         }

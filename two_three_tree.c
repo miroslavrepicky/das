@@ -33,7 +33,7 @@ static T23Node *node_new(void)
 }
 
 /* Comparison wrapper – keeps the code easy to adapt to other key types. */
-static inline int cmp(T23Key a, T23Key b)
+static inline long long cmp(T23Key a, T23Key b)
 {
     return (a > b) - (a < b);   /* -1 / 0 / +1 */
 }
@@ -71,11 +71,11 @@ void tree23_free(T23Tree *tree)
 static bool node_search(const T23Node *n, T23Key key)
 {
     while (n) {
-        int c0 = cmp(key, n->keys[0]);
+        long long c0 = cmp(key, n->keys[0]);
         if (c0 == 0) return true;
 
         if (n->num_keys == 2) {
-            int c1 = cmp(key, n->keys[1]);
+            long long c1 = cmp(key, n->keys[1]);
             if (c1 == 0) return true;
 
             if (c0 < 0)
@@ -119,7 +119,7 @@ static SplitResult insert_rec(T23Node *n, T23Key key);
  * If n is a 2-node it simply becomes a 3-node (no further split).
  * If n is a 3-node it overflows → we return another split upward.
  */
-static SplitResult absorb_split(T23Node *n, int pos,
+static SplitResult absorb_split(T23Node *n, long long pos,
                                 T23Key up_key,
                                 T23Node *left, T23Node *right)
 {
@@ -192,7 +192,7 @@ static SplitResult insert_rec(T23Node *n, T23Key key)
     if (!n->child[0]) {
         /* Insert key into this leaf */
         if (n->num_keys == 1) {
-            int c0 = cmp(key, n->keys[0]);
+            long long c0 = cmp(key, n->keys[0]);
             if (c0 == 0) return (SplitResult){ .split = false }; /* duplicate */
             if (c0 < 0) {
                 n->keys[1] = n->keys[0];
@@ -228,14 +228,14 @@ static SplitResult insert_rec(T23Node *n, T23Key key)
     }
 
     /* --- internal node: recurse into the correct child --- */
-    int pos;
+    long long pos;
     SplitResult sr;
 
-    int c0 = cmp(key, n->keys[0]);
+    long long c0 = cmp(key, n->keys[0]);
     if (c0 == 0) return (SplitResult){ .split = false }; /* duplicate */
 
     if (n->num_keys == 2) {
-        int c1 = cmp(key, n->keys[1]);
+        long long c1 = cmp(key, n->keys[1]);
         if (c1 == 0) return (SplitResult){ .split = false }; /* duplicate */
         if (c0 < 0)      { pos = 0; sr = insert_rec(n->child[0], key); }
         else if (c1 < 0) { pos = 1; sr = insert_rec(n->child[1], key); }
@@ -315,7 +315,7 @@ static T23Key subtree_min(T23Node *n)
  * Fix an underflow in child[pos] of node n.
  * Returns DEL_OK or DEL_UNDERFLOW (if n itself now underflows).
  */
-static DelStatus fix_underflow(T23Node *n, int pos)
+static DelStatus fix_underflow(T23Node *n, long long pos)
 {
     /*
      * We have 3 cases depending on whether n is a 2-node or 3-node,
@@ -502,12 +502,12 @@ static DelStatus fix_underflow(T23Node *n, int pos)
 
 static DelStatus delete_rec(T23Node *n, T23Key key)
 {
-    int c0 = cmp(key, n->keys[0]);
+    long long c0 = cmp(key, n->keys[0]);
 
     /* ---- leaf ---- */
     if (!n->child[0]) {
         if (n->num_keys == 2) {
-            int c1 = cmp(key, n->keys[1]);
+            long long c1 = cmp(key, n->keys[1]);
             if (c0 == 0) {
                 n->keys[0] = n->keys[1];
                 n->num_keys = 1;
@@ -528,11 +528,11 @@ static DelStatus delete_rec(T23Node *n, T23Key key)
     }
 
     /* ---- internal node ---- */
-    int child_pos;
+    long long child_pos;
     DelStatus st;
 
     if (n->num_keys == 2) {
-        int c1 = cmp(key, n->keys[1]);
+        long long c1 = cmp(key, n->keys[1]);
 
         if (c0 == 0) {
             /* Replace with in-order successor, then delete successor */
@@ -593,25 +593,25 @@ void tree23_delete(T23Tree *tree, T23Key key)
 }
 
 /* ================================================================== */
-/*  Print (in-order, indented)                                        */
+/*  Prlong long (in-order, indented)                                        */
 /* ================================================================== */
 
-static void print_rec(const T23Node *n, int depth)
+static void print_rec(const T23Node *n, long long depth)
 {
     if (!n) return;
 
-    /* Print right subtree first (rotated view) */
+    /* Prlong long right subtree first (rotated view) */
     if (n->num_keys == 2)
         print_rec(n->child[2], depth + 1);
 
     print_rec(n->child[1], depth + 1);
 
-    for (int i = 0; i < depth; ++i) printf("    ");
+    for (long long i = 0; i < depth; ++i) printf("    ");
 
     if (n->num_keys == 2)
-        printf("[%d | %d]\n", n->keys[0], n->keys[1]);
+        printf("[%lld | %lld]\n", n->keys[0], n->keys[1]);
     else
-        printf("[%d]\n", n->keys[0]);
+        printf("[%lld]\n", n->keys[0]);
 
     print_rec(n->child[0], depth + 1);
 }
@@ -631,19 +631,19 @@ void tree23_print(const T23Tree *tree)
 #define MAX_COLS 2048
  
 static char canvas[MAX_ROWS][MAX_COLS];
-static int  canvas_width[MAX_ROWS];
+static long long  canvas_width[MAX_ROWS];
  
 static void canvas_clear(void) {
-    for (int r = 0; r < MAX_ROWS; r++) {
+    for (long long r = 0; r < MAX_ROWS; r++) {
         memset(canvas[r], ' ', MAX_COLS - 1);
         canvas[r][MAX_COLS - 1] = '\0';
         canvas_width[r] = 0;
     }
 }
  
-static void canvas_write(int row, int col, const char *s) {
+static void canvas_write(long long row, long long col, const char *s) {
     if (row < 0 || row >= MAX_ROWS) return;
-    int len = (int)strlen(s);
+    long long len = (int)strlen(s);
     if (col + len >= MAX_COLS) return;
     memcpy(canvas[row] + col, s, len);
     if (col + len > canvas_width[row])
@@ -651,10 +651,10 @@ static void canvas_write(int row, int col, const char *s) {
 }
  
 static void canvas_flush(void) {
-    for (int r = 0; r < MAX_ROWS; r++) {
+    for (long long r = 0; r < MAX_ROWS; r++) {
         if (canvas_width[r] == 0) break;
         /* orez trailing spaces */
-        int end = canvas_width[r];
+        long long end = canvas_width[r];
         while (end > 0 && canvas[r][end-1] == ' ') end--;
         canvas[r][end] = '\0';
         puts(canvas[r]);
@@ -663,77 +663,77 @@ static void canvas_flush(void) {
  
 /* ── Rekurzívny výpočet šírky podstromu ────────────────────────── */
 /* Vracia šírku v znakoch (párna hodnota pre jednoduchšie centrovanie). */
-static int subtree_width(const T23Node *n) {
+static long long subtree_width(const T23Node *n) {
     if (!n) return 0;
     /* Šírka samotného uzla: "[k1]" alebo "[k1|k2]" */
     char buf[32];
-    int nw;
+    long long nw;
     if (n->num_keys == 1)
-        nw = snprintf(buf, sizeof buf, "[%d]", n->keys[0]);
+        nw = snprintf(buf, sizeof buf, "[%lld]", n->keys[0]);
     else
-        nw = snprintf(buf, sizeof buf, "[%d|%d]", n->keys[0], n->keys[1]);
+        nw = snprintf(buf, sizeof buf, "[%lld|%lld]", n->keys[0], n->keys[1]);
     (void)buf;
  
     /* Listový uzol */
     if (!n->child[0]) return nw < 4 ? 4 : nw;
  
     /* Vnútorný uzol: súčet šírok detí + medzery */
-    int cw = 0;
-    for (int i = 0; i <= n->num_keys; i++)
+    long long cw = 0;
+    for (long long i = 0; i <= n->num_keys; i++)
         cw += subtree_width(n->child[i]);
     cw += n->num_keys * 2;          /* 2-znakové medzery medzi deťmi */
     return cw > nw ? cw : nw;
 }
  
 /* ── Rekurzívne kreslenie ───────────────────────────────────────── */
-static void draw_node(const T23Node *n, int row, int col, int width) {
+static void draw_node(const T23Node *n, long long row, long long col, long long width) {
     if (!n) return;
  
     /* 1. Nakresli label uzla vycentrovaný v [col, col+width) */
     char label[32];
-    int llen;
+    long long llen;
     if (n->num_keys == 1)
-        llen = snprintf(label, sizeof label, "[%d]", n->keys[0]);
+        llen = snprintf(label, sizeof label, "[%lld]", n->keys[0]);
     else
-        llen = snprintf(label, sizeof label, "[%d|%d]", n->keys[0], n->keys[1]);
+        llen = snprintf(label, sizeof label, "[%lld|%lld]", n->keys[0], n->keys[1]);
  
-    int label_col = col + (width - llen) / 2;
+    long long label_col = col + (width - llen) / 2;
     canvas_write(row, label_col, label);
  
     if (!n->child[0]) return;   /* list — hotovo */
  
     /* 2. Vypočítaj stredové pozície detí */
-    int num_ch = n->num_keys + 1;
-    int child_w[3], child_col[3];
-    int total_ch_w = 0;
-    for (int i = 0; i < num_ch; i++) {
+    long long num_ch = n->num_keys + 1;
+    long long child_w[3], child_col[3];
+    long long total_ch_w = 0;
+    for (long long i = 0; i < num_ch; i++) {
         child_w[i] = subtree_width(n->child[i]);
         total_ch_w += child_w[i];
     }
     total_ch_w += (num_ch - 1) * 2;    /* medzery */
  
     /* Posun tak, aby stredová masa detí bola zarovnaná s rodičom */
-    int ch_start = col + (width - total_ch_w) / 2;
+    long long ch_start = col + (width - total_ch_w) / 2;
     if (ch_start < col) ch_start = col;
  
-    int cx = ch_start;
-    for (int i = 0; i < num_ch; i++) {
+    long long cx = ch_start;
+    for (long long i = 0; i < num_ch; i++) {
         child_col[i] = cx;
         cx += child_w[i] + 2;
     }
  
     /* 3. Nakresli hrany: "/" pre ľavé deti, "\" pre pravé, "|" pre stred */
-    int parent_mid = label_col + llen / 2;
-    for (int i = 0; i < num_ch; i++) {
-        int child_mid = child_col[i] + child_w[i] / 2;
+    long long parent_mid = label_col + llen / 2;
+    for (long long i = 0; i < num_ch; i++) {
+        long long child_mid = child_col[i] + child_w[i] / 2;
  
         /* Nakresli cestu edge-ov riadok po riadku (jednoduchá šikmá čiara) */
-        int dy = (row + 1);                 /* riadok hran je row+1 */
-        int dx_per_step = child_mid - parent_mid;
+        long long dy = (row + 1);                 /* riadok hran je row+1 */
+        long long dx_per_step = child_mid - parent_mid;
         char edge_ch = (dx_per_step < 0) ? '/' : (dx_per_step > 0) ? '\\' : '|';
  
         /* Krok = 1 riadok = 1 stĺpec (diagonála alebo zvislica) */
-        int ex = parent_mid + (dx_per_step < 0 ? -1 : dx_per_step > 0 ? 1 : 0);
+        long long ex = parent_mid + (dx_per_step < 0 ? -1 : dx_per_step > 0 ? 1 : 0);
         char tmp[2] = { edge_ch, '\0' };
         canvas_write(dy, ex, tmp);
  
@@ -745,7 +745,7 @@ static void draw_node(const T23Node *n, int row, int col, int width) {
 /* ── Verejná funkcia ────────────────────────────────────────────── */
  
 /**
- * t23_print – vypíše 2-3 strom do stdout (ASCII art).
+ * t23_prlong long – vypíše 2-3 strom do stdout (ASCII art).
  * Príklad:
  *     T23Tree t = { ... };
  *     t23_print(t.root);
@@ -756,7 +756,7 @@ void t23_print(const T23Node *root) {
         puts("(prázdny strom)");
         return;
     }
-    int w = subtree_width(root);
+    long long w = subtree_width(root);
     draw_node(root, 0, 0, w);
     canvas_flush();
 }
@@ -769,17 +769,17 @@ void t23_print(const T23Node *root) {
 /*  Demo main (compile with -DTREE23_DEMO to enable)                  */
 /* ================================================================== */
 #ifdef TREE23_DEMO
-int main(void)
+long long main(void)
 {
     T23Tree t;
     tree23_init(&t);
 
-    int keys[] = { 10, 20, 5, 6, 12, 30, 7, 17, 3, 8, 15, 11 };
-    int n      = (int)(sizeof keys / sizeof keys[0]);
+    long long keys[] = { 10, 20, 5, 6, 12, 30, 7, 17, 3, 8, 15, 11 };
+    long long n      = (int)(sizeof keys / sizeof keys[0]);
 
     printf("=== Insert ===\n");
-    for (int i = 0; i < n; ++i) {
-        printf("insert %d\n", keys[i]);
+    for (long long i = 0; i < n; ++i) {
+        printf("insert %lld\n", keys[i]);
         tree23_insert(&t, keys[i]);
         t23_print(t.root);
     }
@@ -787,16 +787,16 @@ int main(void)
     //tree23_print(&t);
     
     printf("\n=== Search ===\n");
-    int queries[] = { 6, 15, 99, 3, 20 };
-    for (int i = 0; i < 5; ++i) {
-        printf("search(%d) -> %s\n", queries[i],
+    long long queries[] = { 6, 15, 99, 3, 20 };
+    for (long long i = 0; i < 5; ++i) {
+        printf("search(%lld) -> %s\n", queries[i],
                tree23_search(&t, queries[i]) ? "FOUND" : "NOT FOUND");
     }
 
     printf("\n=== Delete ===\n");
-    int del[] = { 6, 20, 10, 3, 25 };
-    for (int i = 0; i < 5; ++i) {
-        printf("delete %d\n", del[i]);
+    long long del[] = { 6, 20, 10, 3, 25 };
+    for (long long i = 0; i < 5; ++i) {
+        printf("delete %lld\n", del[i]);
         tree23_delete(&t, del[i]);
     }
     printf("\n=== Tree after deletes ===\n");

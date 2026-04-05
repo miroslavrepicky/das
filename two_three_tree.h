@@ -21,12 +21,12 @@ extern "C" {
 /*  Types                                                               */
 /* ------------------------------------------------------------------ */
 
-typedef int T23Key;   /* Change to any comparable type as needed. */
+typedef long long T23Key;   /* Change to any comparable type as needed. */
 
 typedef struct T23Node {
     T23Key          keys[2];      /* keys[0] (and optionally keys[1])  */
     struct T23Node *child[3];     /* child[0..1] for 2-node, [0..2] for 3-node */
-    int             num_keys;     /* 1 → 2-node,  2 → 3-node          */
+    long long             num_keys;     /* 1 → 2-node,  2 → 3-node          */
 } T23Node;
 
 typedef struct {
@@ -80,7 +80,7 @@ void tree23_delete(T23Tree *tree, T23Key key);
 void tree23_free(T23Tree *tree);
 
 /**
- * tree23_print - Print the tree to stdout (in-order, indented).
+ * tree23_prlong long - Prlong long the tree to stdout (in-order, indented).
  * @tree: the tree.
  *
  * Useful for debugging.

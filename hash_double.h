@@ -8,40 +8,40 @@ extern "C" {
 #define ALPHA_THRESHOLD 0.5
 #define LOWER_ALPHA 0.2
 
-int find_prime(int n) {
+long long find_prime(long long n) {
     if (n <= 1) return 0;
-    for (int i = 2; i * i <= n; i++) {
+    for (long long i = 2; i * i <= n; i++) {
         if (n % i == 0) return find_prime(n--);
     }
     return n;
 }
 
-int hashd_1(int key, int size){
+long long hashd_1(long long key, long long size){
     return key % size;
 }
 
-int hashd_2(int key, int prime){
+long long hashd_2(long long key, long long prime){
     return prime - (key % prime);
 }
 
-int double_hash(int key, int i, int size, int prime){
+long long double_hash(long long key, long long i, long long size, long long prime){
     return (hashd_1(key, size) + i * hashd_2(key, prime)) % size;
 }
 
-typedef struct HashTable{
-    int size;       // velkost tabulky
-    int prime;
-    int used; // pocet obsadenych slotov, vratane vymazanych
-    int count; // pocet skutocne vlozenych klucov (bez vymazanych)
-    int *table;     // pole pre ulozenie klucov
-} HashTable;
+typedef struct HashTableDouble {
+    long long size;       // velkost tabulky
+    long long prime;
+    long long used; // pocet obsadenych slotov, vratane vymazanych
+    long long count; // pocet skutocne vlozenych klucov (bez vymazanych)
+    long long *table;     // pole pre ulozenie klucov
+} HashTableDouble;
 
-HashTable* create_table(int size);
-void insert(HashTable *ht, int key);
-int search(HashTable *ht, int key);
-void delete_key(HashTable *ht, int key);
-void free_tabled(HashTable *ht);
-void rehash_double(HashTable *ht, double factor);
+HashTableDouble* create_table_double(long long size);
+void insert_double(HashTableDouble *ht, long long key);
+long long search_double(HashTableDouble *ht, long long key);
+void delete_key_double(HashTableDouble *ht, long long key);
+void free_table_double(HashTableDouble *ht);
+void rehash_double(HashTableDouble *ht, double factor);
 
 
 
