@@ -33,16 +33,13 @@ typedef struct {
     T23Node *root;
 } T23Tree;
 
-/* ------------------------------------------------------------------ */
-/*  API                                                                 */
-/* ------------------------------------------------------------------ */
 
 /**
  * tree23_init - Initialise an empty 2-3 tree.
  * @tree: pointer to the tree structure to initialise.
  */
 void tree23_init(T23Tree *tree);
-
+ 
 /**
  * tree23_insert - Insert a key into the tree.
  * @tree: the tree.
@@ -51,7 +48,7 @@ void tree23_init(T23Tree *tree);
  * Duplicate keys are silently ignored.
  */
 void tree23_insert(T23Tree *tree, T23Key key);
-
+ 
 /**
  * tree23_search - Check whether a key exists in the tree.
  * @tree: the tree.
@@ -60,7 +57,7 @@ void tree23_insert(T23Tree *tree, T23Key key);
  * Returns true if the key is found, false otherwise.
  */
 bool tree23_search(const T23Tree *tree, T23Key key);
-
+ 
 /**
  * tree23_delete - Remove a key from the tree.
  * @tree: the tree.
@@ -69,7 +66,7 @@ bool tree23_search(const T23Tree *tree, T23Key key);
  * Does nothing if the key is not present.
  */
 void tree23_delete(T23Tree *tree, T23Key key);
-
+ 
 /**
  * tree23_free - Release all memory used by the tree.
  * @tree: the tree.
@@ -79,16 +76,12 @@ void tree23_delete(T23Tree *tree, T23Key key);
  */
 void tree23_free(T23Tree *tree);
 
-/**
- * tree23_prlong long - Prlong long the tree to stdout (in-order, indented).
- * @tree: the tree.
- *
- * Useful for debugging.
- */
-void tree23_print(const T23Tree *tree);
+
+
+
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* TREE23_H */
+#endif

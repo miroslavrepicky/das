@@ -17,10 +17,10 @@ HashTable* create_table(long long size){
 }
 
 void insert(HashTable *ht, long long key){
-    long long index = key % ht->size; // jednoduchá hashovací funkce
+    long long index = ((key % ht->size) + ht->size) % ht->size; // jednoduchá hashovacia funkcia
     Node *new_node = (Node*)malloc(sizeof(Node));
     new_node->key = key;
-    new_node->next = ht->table[index]; // vkládáme na začátek řetězce
+    new_node->next = ht->table[index]; // vkládáme na zaciatok reťazca
     ht->table[index] = new_node;
     ht->count++;
     if ((double)ht->count / ht->size > ALPHA_THRESHOLD)
@@ -31,7 +31,7 @@ void insert(HashTable *ht, long long key){
 }
 
 Node* search(HashTable *ht, long long key){
-    long long index = key % ht->size;
+    long long index = ((key % ht->size) + ht->size) % ht->size;
     Node *current = ht->table[index];
     while(current != NULL){
         if(current->key == key){
@@ -43,15 +43,15 @@ Node* search(HashTable *ht, long long key){
 }
 
 void delete_key(HashTable *ht, long long key){
-    long long index = key % ht->size;
+    long long index = ((key % ht->size) + ht->size) % ht->size;
     Node *current = ht->table[index];
     Node *prev = NULL;
     while(current != NULL){
         if(current->key == key){
             if(prev == NULL){
-                ht->table[index] = current->next; // mazání prvního uzlu v řetězci
+                ht->table[index] = current->next; // mazanie prvného uzla v reťazci
             } else {
-                prev->next = current->next; // mazání uzlu uprostřed nebo na konci řetězce
+                prev->next = current->next; // mazanie uzla uprostred nebo na konci reťazca
             }
             free(current);
             ht->count--;
